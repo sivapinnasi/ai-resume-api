@@ -3,11 +3,11 @@ from pydantic import BaseModel
 import os
 from docx import Document
 from fastapi.responses import FileResponse
-from fastapi.middleware.cors import CORSMiddleware  # Import CORS middleware
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
-# Enable CORS for all origins (or you can specify domains like ["http://localhost:3000"])
+# Enable CORS for all origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # You can replace '*' with specific domains like ["http://localhost:3000"]
@@ -35,6 +35,7 @@ async def generate_resume(data: ResumeData):
     doc = Document()
     doc.add_heading(f"Resume for {data.name}", 0)
     
+    # Add all the information to the document
     doc.add_paragraph(f"Name: {data.name}")
     doc.add_paragraph(f"Address: {data.address}")
     doc.add_paragraph(f"Phone: {data.phone}")
@@ -50,7 +51,7 @@ async def generate_resume(data: ResumeData):
     file_path = os.path.join("resumes", filename)
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
     doc.save(file_path)
-    
+
     # Return the file path for download
     return {"download_url": f"/download/{filename}"}
 
@@ -58,9 +59,8 @@ async def generate_resume(data: ResumeData):
 async def download_file(filename: str):
     file_path = os.path.join("resumes", filename)
     
-    # Check if the file exists
-    if not os.path.exists(file_path):
+    # Check if file exists before sending it
+    if os.path.exists(file_path):
+        return FileResponse(file_path, media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document', filename=filename)
+    else:
         return {"error": "File not found"}
-
-    # Return the file as a downloadable response
-    return FileResponse(file_path, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=filename)
