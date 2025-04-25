@@ -3,9 +3,20 @@ from pydantic import BaseModel
 import os
 from docx import Document
 from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware  # Import CORS middleware
 
 app = FastAPI()
 
+# Enable CORS for all origins (or you can specify domains like ["http://localhost:3000"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # You can replace '*' with specific domains like ["http://localhost:3000"]
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all HTTP methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allows all headers
+)
+
+# Pydantic model for the resume data
 class ResumeData(BaseModel):
     name: str
     address: str
