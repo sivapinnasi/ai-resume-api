@@ -57,4 +57,10 @@ async def generate_resume(data: ResumeData):
 @app.get("/download/{filename}")
 async def download_file(filename: str):
     file_path = os.path.join("resumes", filename)
-    return FileResponse(file_path)
+    
+    # Check if the file exists
+    if not os.path.exists(file_path):
+        return {"error": "File not found"}
+
+    # Return the file as a downloadable response
+    return FileResponse(file_path, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=filename)
