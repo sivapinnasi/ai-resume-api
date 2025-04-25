@@ -1,4 +1,3 @@
-# app.py
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
@@ -6,7 +5,7 @@ import json
 import os
 import base64
 from docx import Document
-from docx.shared import Pt, Inches
+from docx.shared import Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import io
 import logging
@@ -18,10 +17,10 @@ CORS(app)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Get OpenRouter API key from environment variables
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+# Get API key from environment
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 if not OPENROUTER_API_KEY:
-    logger.warning("OpenRouter API key not found. Set OPENROUTER_API_KEY environment variable.")
+    logger.warning("OPENROUTER_API_KEY not found. Set it in Render's environment variables.")
 
 # Resume templates
 TEMPLATES = {
@@ -52,38 +51,22 @@ TEMPLATES = {
 }
 
 def generate_resume_content(user_data):
-    """
-    Generate resume content using OpenRouter API based on job title
-    """
-    if not OPENROUTER_API_KEY:
-        logger.error("OpenRouter API key not available")
-        return None
-    
-    # Prepare prompt for the AI
     prompt = f"""
     Create a professional resume for a {user_data['job_title']} role with the following information:
     
     Skills: {', '.join(user_data['skills'])}
-    
     Certificates: {', '.join(user_data['certificates'])}
-    
     Projects: {', '.join(user_data['projects'])}
-    
-    Educational background: {user_data['education']}
-    
+    Education: {user_data['education']}
     Work experience: {user_data['experience']}
     
-    Format the resume with appropriate sections for Personal Information, Skills, Professional Experience, Education, Projects, and Certifications.
-    For each job in Work Experience, provide 3-4 bullet points highlighting achievements.
-    For projects, focus on technologies used and outcomes.
-    
-    Return the content in JSON format with these sections:
-    1. summary - a professional summary tailored to the job title
-    2. skills - formatted list of skills grouped by category
-    3. experience - formatted work experience with bullet points
-    4. education - formatted education details
-    5. projects - formatted project descriptions
-    6. certificates - formatted certificates list
+    Format in JSON with these fields:
+    - summary
+    - skills
+    - experience
+    - education
+    - projects
+    - certificates
     """
 
     try:
@@ -95,118 +78,92 @@ def generate_resume_content(user_data):
             },
             json={
                 "model": "anthropic/claude-3-opus",
-                "messages": [
-                    {"role": "user", "content": prompt}
-                ],
+                "messages": [{"role": "user", "content": prompt}],
                 "response_format": {"type": "json_object"}
             }
         )
-        
+
         if response.status_code == 200:
             result = response.json()
-            generated_content = json.loads(result["choices"][0]["message"]["content"])
-            return generated_content
+            return json.loads(result["choices"][0]["message"]["content"])
         else:
-            logger.error(f"OpenRouter API error: {response.status_code} - {response.text}")
+            logger.error(f"OpenRouter API error {response.status_code}: {response.text}")
             return None
     except Exception as e:
-        logger.error(f"Error calling OpenRouter API: {str(e)}")
+        logger.exception(f"Error generating content: {e}")
         return None
 
 def create_docx_resume(user_data, ai_content, template_name):
-    """
-    Create a docx resume using the chosen template and AI-generated content
-    """
     template = TEMPLATES.get(template_name, TEMPLATES["professional"])
     
     doc = Document()
-    # Set margins
-    sections = doc.sections
-    for section in sections:
+    for section in doc.sections:
         section.top_margin = Inches(0.5)
         section.bottom_margin = Inches(0.5)
         section.left_margin = Inches(0.75)
         section.right_margin = Inches(0.75)
-    
-    # Personal Information
-    heading = doc.add_heading(f"{user_data['name']}", level=0)
-    heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    
+
+    doc.add_heading(user_data['name'], level=0).alignment = WD_ALIGN_PARAGRAPH.CENTER
+
     contact_info = doc.add_paragraph()
     contact_info.alignment = WD_ALIGN_PARAGRAPH.CENTER
     contact_info.add_run(f"{user_data['email']} | {user_data['phone']} | {user_data['address']}")
-    
-    # Professional Summary
+
     doc.add_heading('Professional Summary', level=1)
     doc.add_paragraph(ai_content['summary'])
-    
-    # Skills Section
+
     doc.add_heading('Skills', level=1)
     doc.add_paragraph(ai_content['skills'])
-    
-    # Experience Section
+
     doc.add_heading('Professional Experience', level=1)
     doc.add_paragraph(ai_content['experience'])
-    
-    # Education Section
+
     doc.add_heading('Education', level=1)
     doc.add_paragraph(ai_content['education'])
-    
-    # Projects Section
+
     doc.add_heading('Projects', level=1)
     doc.add_paragraph(ai_content['projects'])
-    
-    # Certificates Section
+
     doc.add_heading('Certifications', level=1)
     doc.add_paragraph(ai_content['certificates'])
-    
-    # Save to bytes
+
     doc_io = io.BytesIO()
     doc.save(doc_io)
     doc_io.seek(0)
-    
     return doc_io.getvalue()
 
 @app.route('/generate-resume', methods=['POST'])
 def generate_resume():
     try:
-        data = request.json
-        
-        # Validate required fields
-        required_fields = ['name', 'email', 'phone', 'address', 'job_title', 
-                           'skills', 'certificates', 'projects', 'education', 
-                           'experience', 'template']
-        
-        for field in required_fields:
-            if field not in data:
-                return jsonify({"error": f"Missing required field: {field}"}), 400
-        
-        # Check template validity
-        template_name = data['template']
-        if template_name not in TEMPLATES:
-            return jsonify({"error": f"Invalid template: {template_name}"}), 400
-        
-        # Generate AI content
+        data = request.get_json()
+        required = ['name', 'email', 'phone', 'address', 'job_title', 
+                    'skills', 'certificates', 'projects', 'education', 
+                    'experience', 'template']
+
+        missing = [field for field in required if field not in data]
+        if missing:
+            return jsonify({"error": f"Missing fields: {', '.join(missing)}"}), 400
+
+        if data['template'] not in TEMPLATES:
+            return jsonify({"error": "Invalid template"}), 400
+
         ai_content = generate_resume_content(data)
         if not ai_content:
-            return jsonify({"error": "Failed to generate resume content"}), 500
-        
-        # Create resume document
-        resume_bytes = create_docx_resume(data, ai_content, template_name)
-        
-        # Convert to base64 for sending to frontend
+            return jsonify({"error": "Failed to generate content"}), 500
+
+        resume_bytes = create_docx_resume(data, ai_content, data['template'])
         resume_base64 = base64.b64encode(resume_bytes).decode('utf-8')
-        
+
         return jsonify({
             "success": True,
             "resume": resume_base64,
             "filename": f"{data['name'].replace(' ', '_')}_resume.docx"
         })
-        
+
     except Exception as e:
-        logger.error(f"Error generating resume: {str(e)}")
+        logger.exception("Unhandled error")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
